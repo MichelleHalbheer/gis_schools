@@ -50,6 +50,11 @@ def zuteilung(gemeinden, schulen, lehren, c, lehrlinge, plaetze):
     x = {}
     for g,s,l in c: #Creating decision variables
         x[g,s,l] = pulp.LpVariable(name='x[{}, {}, {}]'.format(g,s,l), lowBound=0, cat=pulp.LpInteger) #Constraint (4) included
+        
+    a={}
+    for g,s,l in x:
+        if g != 'Dummy': #Dummy excluded since it is needed to balance the problem
+            a[g,s,l] = pulp.LpVariable(name='assigned[{}, {}, {}]'.format(g,s,l), cat=pulp.LpBinary)
     
     #Constraint (2)
     for g in gemeinden:
@@ -72,13 +77,40 @@ def zuteilung(gemeinden, schulen, lehren, c, lehrlinge, plaetze):
     
     #Constraint(5)
     for g in gemeinden:
-        for l in lehren:
-            model.addConstraint(pulp.LpConstraint(
-                e=pulp.lpSum((x[g,s,l] - lehrlinge[g,l] if (x[g,s,l]==lehrlinge[g,l]) else x[g,s,l]) for s in schulen if (g,s,l) in x),
-                sense=pulp.LpConstraintEQ,
-                name='Unique_assignment[{}, {}]'.format(g,l),
-                rhs=0
-            ))
+        if g != 'Dummy':
+            for l in lehren:
+                model.addConstraint(pulp.LpConstraint(
+                    e=pulp.lpSum(a[g,s,l] for s in schulen if (g,s,l) in a),
+                    sense=pulp.LpConstraintEQ,
+                    name='Unique_assignment[{}, {}]'.format(g,l),
+                    rhs=1
+                ))
+
+    M=10000
+
+    for g in gemeinden:
+        if g != 'Dummy':
+            for l in lehren:
+                for s in schulen:
+                    if (g,s,l) in x:
+                        model.addConstraint(pulp.LpConstraint(
+                            e=x[g,s,l],
+                            sense=pulp.LpConstraintGE,
+                            name='Unique_lower_bound[{}, {}, {}]'.format(g,s,l),
+                            rhs=lehrlinge[g,l] - M*(1-a[g,s,l])
+                        ))
+
+    for g in gemeinden:
+        if g != 'Dummy':
+            for l in lehren:
+                for s in schulen:
+                    if (g,s,l) in x:
+                        model.addConstraint(pulp.LpConstraint(
+                            e=x[g,s,l],
+                            sense=pulp.LpConstraintLE,
+                            name='Unique_upper_bound[{}, {}, {}]'.format(g,s,l),
+                            rhs=M*a[g,s,l]
+                        ))
     
     
     model.setObjective(pulp.lpSum(c[g,s,l] * x[g,s,l] for g,s,l in x)) #Objective function
